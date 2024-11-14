@@ -1,0 +1,57 @@
+Already know what to do? Run this command?
+
+   python "Leave Report Generator.py"
+
+
+# Leave Report Generator - Quick Start Guide for Windows Users
+
+## Run the Program
+
+To generate your leave report, follow these steps:
+
+1. Open the folder containing the "Leave Report Generator.py" file.
+2. Left-click in an empty space in this folder (not on any file or folder).
+3. Select "Open in Terminal" from the menu that appears.
+4. In the terminal window that opens, copy and paste this command:
+
+
+   python "Leave Report Generator.py"
+
+
+5. Press Enter and wait for the program to finish.
+6. When prompted, press Enter again to close the window.
+
+Your report will be saved as "Comprehensive Leave Report.xlsx" in the same folder.
+
+## Troubleshooting
+
+If you encounter any issues, try these steps:
+
+### 1. Check Your Files
+- Ensure there's a folder named "Reports" in the same directory as the script.
+- Place exactly two Excel files in the "Reports" folder:
+  - One file with leave requests
+  - One file with employee work areas
+- Remove any other files from the "Reports" folder.
+
+### 2. First-Time Setup
+If this is your first time running the program, you may need to install required packages:
+
+1. Open a terminal in the script's folder.
+2. Run this command:
+
+
+   pip install pandas openpyxl pytz xlrd 
+
+
+3. Wait for the installation to complete.
+
+### 3. Common Issues
+- If you see error messages, double-check your Excel files and try running the program again.
+- Ensure no Excel files are currently open when running the script.
+
+### 4. Still Having Problems?
+If the program still doesn't work after trying these steps, contact your IT support team for assistance.
+
+## Need More Help?
+For detailed instructions or additional support, please refer to your IT department or the full documentation.
