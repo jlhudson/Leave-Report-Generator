@@ -17,6 +17,24 @@ class DepartmentalLeaveReportGenerator:
             ("ADELAIDE HILLS & STRATHALBYN", ["ADELAIDE HILLS", "STRATHALBYN"]),
         ]
 
+        # Define border styles at initialization
+        self.thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+
+        self.thick_border = Border(
+            left=Side(style='medium'),
+            right=Side(style='medium'),
+            top=Side(style='medium'),
+            bottom=Side(style='medium')
+        )
+
+        # Define fill styles
+        self.header_fill = PatternFill(start_color='CCCCCC', end_color='CCCCCC', fill_type='solid')
+
     def _get_all_leave_dates(self):
         """Collect all unique leave dates from all employees."""
         all_dates = set()
@@ -32,7 +50,7 @@ class DepartmentalLeaveReportGenerator:
         """Format employee name as 'FirstName L.'"""
         parts = full_name.strip().split()
         if len(parts) > 1:
-            return f"{parts[0]} {parts[-1][0]}."
+            return f"{parts[0]} {parts[-1][0]}"
         return full_name
 
     def _assign_status_colors(self):
@@ -46,91 +64,113 @@ class DepartmentalLeaveReportGenerator:
             color = self.colors[i % len(self.colors)]
             self.status_colors[status] = color
 
+    def _write_date_headers(self, ws, row, all_dates, style='normal'):
+        """Write date headers with specified style."""
+        border = self.thick_border if style == 'normal' else self.thin_border
+        fill = PatternFill(start_color='CCCCCC', end_color='CCCCCC', fill_type='solid')
+
+        date_headers = [self._format_date_header(date) for date in all_dates]
+        for col, header in enumerate(date_headers, 1):
+            cell = ws.cell(row=row, column=col)
+            cell.value = header
+            cell.font = Font(bold=True)
+            cell.fill = fill
+            cell.alignment = Alignment(horizontal='center')
+            cell.border = border
+
     def _get_location_departments(self, location_employees):
-        """Get all departments for a location and their employees."""
+        """Get all departments for a location and their employees, sorted by leave count."""
         dept_employees = {}
+
         for emp in location_employees.values():
             for work_area in emp.work_areas:
                 if work_area.department not in dept_employees:
                     dept_employees[work_area.department] = []
                 dept_employees[work_area.department].append(emp)
 
-        # Remove duplicates and sort by name within each department
+        # Remove duplicates and sort by leave count within each department
         for dept in dept_employees:
+            unique_emps = []
+            seen = set()
+            for emp in dept_employees[dept]:
+                if emp.emp_code not in seen:
+                    unique_emps.append(emp)
+                    seen.add(emp.emp_code)
+
+            # Sort by leave count (descending) and then by name
             dept_employees[dept] = sorted(
-                list(set(dept_employees[dept])),
-                key=lambda x: x.name
+                unique_emps,
+                key=lambda x: (-len(x.leave_dates), x.name)
             )
 
         return dict(sorted(dept_employees.items()))
 
+    def _get_employees_by_date(self, employees, date):
+        """Get employees who have leave on a specific date, with their status."""
+        result = []
+        for emp in employees:
+            if date in emp.leave_dates:
+                result.append((emp, emp.leave_dates[date].status))
+        return result
+
     def _generate_worksheet(self, ws_name, location_employees, all_dates):
         """Generate a worksheet for the given location."""
         ws = self.wb.create_sheet(ws_name)
-
-        # Define styles
-        thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-
-        thick_border = Border(
-            left=Side(style='medium'),
-            right=Side(style='medium'),
-            top=Side(style='medium'),
-            bottom=Side(style='medium')
-        )
-
-        header_fill = PatternFill(start_color='CCCCCC', end_color='CCCCCC', fill_type='solid')
 
         # Get departments and their employees
         dept_employees = self._get_location_departments(location_employees)
 
         current_row = 1
 
-        # Write date headers
-        date_headers = [''] + [self._format_date_header(date) for date in all_dates]
-        for col, header in enumerate(date_headers, 1):
-            cell = ws.cell(row=current_row, column=col)
-            cell.value = header
-            cell.font = Font(bold=True)
-            cell.fill = header_fill
-            cell.alignment = Alignment(horizontal='center')
-            cell.border = thick_border
-
         # Process each department
+        first_department = True
         for dept_name, dept_emps in dept_employees.items():
-            current_row += 2  # Add spacing between departments
+            if not first_department:
+                current_row += 3  # Add more spacing between departments
+            first_department = False
+
+            # Write date headers for this department
+            self._write_date_headers(ws, current_row, all_dates)
+            current_row += 1
 
             # Write department header
             cell = ws.cell(row=current_row, column=1)
             cell.value = dept_name
             cell.font = Font(bold=True)
-            cell.fill = header_fill
-            cell.border = thick_border
+            cell.fill = self.header_fill
+            cell.border = self.thick_border
 
-            # Write employee rows for this department
-            for employee in dept_emps:
+            # Extend department header across all date columns
+            for col in range(2, len(all_dates) + 1):
+                cell = ws.cell(row=current_row, column=col)
+                cell.fill = self.header_fill
+                cell.border = self.thick_border
+
+            max_employees_per_day = 0
+            employees_by_date = {}
+
+            # Pre-calculate employees for each date and find maximum
+            for date in all_dates:
+                emps_on_leave = self._get_employees_by_date(dept_emps, date)
+                employees_by_date[date] = emps_on_leave
+                max_employees_per_day = max(max_employees_per_day, len(emps_on_leave))
+
+            # Create enough rows for the maximum number of employees on any day
+            for row_offset in range(max_employees_per_day):
                 current_row += 1
 
-                # Write employee name in first column
-                cell = ws.cell(row=current_row, column=1)
-                cell.value = self._format_employee_name(employee.name)
-                cell.border = thin_border
-
-                # Write leave status for each date
-                for col, date in enumerate(all_dates, 2):
+                # Fill in employees for each date
+                for col, date in enumerate(all_dates, 1):
                     cell = ws.cell(row=current_row, column=col)
-                    cell.border = thin_border
+                    cell.border = self.thin_border
 
-                    if date in employee.leave_dates:
-                        leave_date = employee.leave_dates[date]
-                        cell.value = self._format_employee_name(employee.name)
+                    emps_on_leave = employees_by_date[date]
+                    if row_offset < len(emps_on_leave):
+                        emp, status = emps_on_leave[row_offset]
+                        cell.value = self._format_employee_name(emp.name)
                         cell.fill = PatternFill(
-                            start_color=self.status_colors[leave_date.status],
-                            end_color=self.status_colors[leave_date.status],
+                            start_color=self.status_colors[status],
+                            end_color=self.status_colors[status],
                             fill_type='solid'
                         )
                         cell.alignment = Alignment(horizontal='center')
@@ -148,10 +188,9 @@ class DepartmentalLeaveReportGenerator:
             color_cell.fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
             current_row += 1
 
-        # Adjust column widths
-        ws.column_dimensions['A'].width = 30  # Names column
-        for col in range(2, len(all_dates) + 2):
-            ws.column_dimensions[get_column_letter(col)].width = 12
+        # Adjust column widths for dates
+        for col in range(1, len(all_dates) + 1):
+            ws.column_dimensions[get_column_letter(col)].width = 15
 
     def _get_employees_for_location(self, location):
         """Get employees for a specific location or combined locations."""
@@ -177,6 +216,95 @@ class DepartmentalLeaveReportGenerator:
                 locations.add(work_area.location)
         return sorted(list(locations))
 
+    def _generate_global_worksheet(self, all_dates):
+        """Generate a global worksheet showing all locations."""
+        ws = self.wb.create_sheet("GLOBAL")
+
+        current_row = 1
+
+        # Write date headers
+        self._write_date_headers(ws, current_row, all_dates)
+        current_row += 1
+
+        # Get all locations and their employees
+        locations = self._get_all_locations()
+
+        # Process each location
+        first_location = True
+        for location in locations:
+            if not first_location:
+                current_row += 2  # Add spacing between locations
+            first_location = False
+
+            filtered_employees = self._get_employees_for_location(location)
+            if not filtered_employees:
+                continue
+
+            # Write location header
+            cell = ws.cell(row=current_row, column=1)
+            cell.value = location
+            cell.font = Font(bold=True)
+            cell.fill = self.header_fill
+            cell.border = self.thick_border
+
+            # Extend location header across all date columns
+            for col in range(2, len(all_dates) + 1):
+                cell = ws.cell(row=current_row, column=col)
+                cell.fill = self.header_fill
+                cell.border = self.thick_border
+
+            employees_by_date = {}
+            max_employees_per_day = 0
+
+            # Sort employees by leave count (descending) and name
+            sorted_employees = sorted(
+                filtered_employees.values(),
+                key=lambda x: (-len(x.leave_dates), x.name)
+            )
+
+            # Pre-calculate employees for each date and find maximum
+            for date in all_dates:
+                emps_on_leave = self._get_employees_by_date(sorted_employees, date)
+                employees_by_date[date] = emps_on_leave
+                max_employees_per_day = max(max_employees_per_day, len(emps_on_leave))
+
+            # Create enough rows for the maximum number of employees on any day
+            for row_offset in range(max_employees_per_day):
+                current_row += 1
+
+                # Fill in employees for each date
+                for col, date in enumerate(all_dates, 1):
+                    cell = ws.cell(row=current_row, column=col)
+                    cell.border = self.thin_border
+
+                    emps_on_leave = employees_by_date[date]
+                    if row_offset < len(emps_on_leave):
+                        emp, status = emps_on_leave[row_offset]
+                        cell.value = self._format_employee_name(emp.name)
+                        cell.fill = PatternFill(
+                            start_color=self.status_colors[status],
+                            end_color=self.status_colors[status],
+                            fill_type='solid'
+                        )
+                        cell.alignment = Alignment(horizontal='center')
+
+        # Add legend
+        current_row += 3
+        ws.cell(row=current_row, column=1, value="Legend:").font = Font(bold=True)
+        current_row += 1
+        for status, color in self.status_colors.items():
+            cell = ws.cell(row=current_row, column=1)
+            cell.value = status
+            cell.alignment = Alignment(horizontal='left')
+
+            color_cell = ws.cell(row=current_row, column=2)
+            color_cell.fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
+            current_row += 1
+
+        # Adjust column widths for dates
+        for col in range(1, len(all_dates) + 1):
+            ws.column_dimensions[get_column_letter(col)].width = 15
+
     def generate_report(self):
         """Generate the departmental leave report in Excel format."""
         # Assign colors to statuses
@@ -188,6 +316,9 @@ class DepartmentalLeaveReportGenerator:
         # Remove default sheet if it exists
         if 'Sheet' in self.wb.sheetnames:
             self.wb.remove(self.wb['Sheet'])
+
+        # Generate GLOBAL worksheet first
+        self._generate_global_worksheet(all_dates)
 
         # Generate location-specific worksheets
         locations = self._get_all_locations()
